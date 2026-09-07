@@ -1,0 +1,15 @@
+{
+  "name": "ai-qa-tester-backend",
+  "version": "1.0.0",
+  "description": "Backend server for AI QA Tester",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}

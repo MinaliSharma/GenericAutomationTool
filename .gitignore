@@ -1,0 +1,11 @@
+node_modules/
+aiqa.sqlite
+aiqa.sqlite-shm
+aiqa.sqlite-wal
+runs/
+.old-ai-version-artifacts/
+frontend/dist/
+playwright/test-results/
+playwright/playwright-report/
+.playwright-mcp/
+*.log
