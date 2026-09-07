@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QA Report - {{PROJECT_NAME}}</title>
+<style>
+  :root {
+    --bg: #f4f6f8;
+    --card-bg: #ffffff;
+    --border: #e0e4e9;
+    --text: #1a2029;
+    --text-muted: #5b6472;
+    --accent: #3b5bdb;
+    --pass: #1a8f4c;
+    --pass-bg: #e5f7ec;
+    --fail: #c92a2a;
+    --fail-bg: #fdecec;
+    --unknown: #8a6d1a;
+    --unknown-bg: #fbf3d9;
+    --mono-bg: #0f1420;
+    --mono-text: #d7e0ee;
+    --radius: 10px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    padding: 24px 16px 64px;
+  }
+
+  .report-container {
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  /* ---------- header ---------- */
+  .report-header {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px 28px;
+    margin-bottom: 20px;
+  }
+
+  .header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .header-top h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+
+  .status-badge {
+    display: inline-block;
+    padding: 6px 16px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .status-badge.passed { background: var(--pass-bg); color: var(--pass); }
+  .status-badge.failed { background: var(--fail-bg); color: var(--fail); }
+
+  .header-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 140px;
+  }
+
+  .meta-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  .meta-value {
+    font-size: 0.95rem;
+    word-break: break-word;
+  }
+
+  /* ---------- sections ---------- */
+  section {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 28px;
+    margin-bottom: 20px;
+  }
+
+  section > h2 {
+    margin: 0 0 12px;
+    font-size: 1.1rem;
+  }
+
+  .ai-summary p {
+    margin: 0;
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+
+  /* ---------- test case cards ---------- */
+  .tc-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .tc-card:last-child { margin-bottom: 0; }
+
+  .tc-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    cursor: pointer;
+    background: #fafbfc;
+    user-select: none;
+  }
+  .tc-header:hover { background: #f1f3f6; }
+
+  .tc-toggle {
+    display: inline-block;
+    transition: transform 0.15s ease;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    width: 12px;
+  }
+  .tc-card.collapsed .tc-toggle { transform: rotate(-90deg); }
+
+  .tc-title {
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tc-type-badge {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: #e8ecfd;
+    color: var(--accent);
+    letter-spacing: 0.03em;
+  }
+
+  .tc-status-badge {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 999px;
+    letter-spacing: 0.03em;
+  }
+  .tc-status-badge.passed { background: var(--pass-bg); color: var(--pass); }
+  .tc-status-badge.failed { background: var(--fail-bg); color: var(--fail); }
+  .tc-status-badge.unknown { background: var(--unknown-bg); color: var(--unknown); }
+
+  .tc-body {
+    padding: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .tc-card.collapsed .tc-body { display: none; }
+
+  .timeline {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .event {
+    border-left: 3px solid var(--border);
+    padding: 6px 0 6px 12px;
+  }
+  .event.type-tool_call { border-left-color: var(--accent); }
+  .event.type-tool_result { border-left-color: #868e96; }
+  .event.type-screenshot { border-left-color: #7048e8; }
+  .event.type-step_result.status-passed { border-left-color: var(--pass); }
+  .event.type-step_result.status-failed { border-left-color: var(--fail); }
+  .event.type-error { border-left-color: var(--fail); }
+  .event.type-step_start { border-left-color: #495057; }
+
+  .event-head {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 0.82rem;
+  }
+
+  .event-kind {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+  }
+
+  .event-time {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    margin-left: auto;
+  }
+
+  .event-detail {
+    margin-top: 4px;
+    font-size: 0.88rem;
+    color: var(--text);
+  }
+
+  .event-detail code,
+  .event-detail pre {
+    background: var(--mono-bg);
+    color: var(--mono-text);
+    border-radius: 6px;
+    padding: 8px 10px;
+    display: block;
+    font-size: 0.78rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .event-detail img {
+    max-width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin-top: 6px;
+    display: block;
+  }
+
+  .screenshot-missing {
+    color: var(--fail);
+    font-style: italic;
+    font-size: 0.82rem;
+  }
+
+  .no-events {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    font-style: italic;
+  }
+
+  /* ---------- java table ---------- */
+  table.java-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  table.java-table th,
+  table.java-table td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.java-table th {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .java-row-status {
+    font-weight: 700;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+  }
+  .java-row-status.passed { color: var(--pass); }
+  .java-row-status.failed,
+  .java-row-status.error { color: var(--fail); }
+
+  .java-summary-line {
+    margin: 0 0 14px;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+  }
+
+  footer {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-top: 24px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151c;
+      --card-bg: #1a1e27;
+      --border: #2a2f3a;
+      --text: #e7ebf2;
+      --text-muted: #99a1b0;
+      --pass-bg: #123123;
+      --fail-bg: #3a1414;
+      --unknown-bg: #332a10;
+    }
+    .tc-header { background: #171b24; }
+    .tc-header:hover { background: #1f2430; }
+    .tc-type-badge { background: #232a45; }
+  }
+</style>
+</head>
+<body>
+  <div class="report-container">
+    <header class="report-header">
+      <div class="header-top">
+        <h1>{{PROJECT_NAME}}</h1>
+        <span class="status-badge {{STATUS_BADGE_CLASS}}">{{STATUS_TEXT}}</span>
+      </div>
+      <div class="header-meta">
+        <div class="meta-item">
+          <span class="meta-label">Target URL</span>
+          <span class="meta-value">{{TARGET_URL}}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Duration</span>
+          <span class="meta-value">{{DURATION}}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Generated</span>
+          <span class="meta-value">{{GENERATED_AT}}</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="ai-summary">
+      <h2>{{SUMMARY_LABEL}}</h2>
+      <p>{{AI_SUMMARY}}</p>
+    </section>
+
+    <section class="test-cases">
+      <h2>Test Cases</h2>
+      {{TEST_CASES_HTML}}
+    </section>
+
+    {{JAVA_SECTION_HTML}}
+
+    <footer>Generated by AI QA Tester &mdash; run #{{RUN_ID}}</footer>
+  </div>
+
+<script>
+  (function () {
+    document.addEventListener('click', function (e) {
+      var header = e.target.closest('.tc-header');
+      if (!header) return;
+      var card = header.closest('.tc-card');
+      if (card) card.classList.toggle('collapsed');
+    });
+  })();
+</script>
+</body>
+</html>
