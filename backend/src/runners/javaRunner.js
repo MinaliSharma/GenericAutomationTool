@@ -4,20 +4,6 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
-let claudeRunner = null;
-let promptTemplates = null;
-try {
-  // eslint-disable-next-line global-require
-  claudeRunner = require('../orchestrator/claudeRunner');
-} catch (e) {
-  claudeRunner = null;
-}
-try {
-  // eslint-disable-next-line global-require
-  promptTemplates = require('../orchestrator/promptTemplates');
-} catch (e) {
-  promptTemplates = null;
-}
 
 /**
  * Recursively find all files under `dir` matching the given predicate on their
@@ -269,46 +255,11 @@ async function runJavaTests({ repoPath, runId, aiSummary, onEvent }) {
 
   emit({ category: 'java', type: 'java_result', payload: javaResultPayload });
 
-  // --- Summary: AI-written (opt-in) or deterministic fallback ---
-  let aiSummaryEmitted = false;
-  if (aiSummary && failures.length > 0) {
-    try {
-      if (!claudeRunner) {
-        // try re-requiring in case it became available after module load
-        // (e.g. the orchestrator subagent finished after this module was first required)
-        claudeRunner = require('../orchestrator/claudeRunner');
-      }
-      if (!promptTemplates) {
-        promptTemplates = require('../orchestrator/promptTemplates');
-      }
-
-      if (
-        claudeRunner &&
-        typeof claudeRunner.runClaudePrompt === 'function' &&
-        promptTemplates &&
-        typeof promptTemplates.buildJavaFailureSummaryPrompt === 'function'
-      ) {
-        const prompt = promptTemplates.buildJavaFailureSummaryPrompt(failures);
-        const repoRootForPrompt = path.resolve(__dirname, '..', '..', '..');
-        const summaryText = await claudeRunner.runClaudePrompt({
-          prompt,
-          cwd: repoRootForPrompt,
-        });
-        emit({ category: 'java', type: 'summary', payload: { text: summaryText } });
-        aiSummaryEmitted = true;
-      }
-    } catch (e) {
-      // AI summary is best-effort; never fail the runner because of it.
-    }
-  }
-
-  if (!aiSummaryEmitted) {
-    const deterministicText =
-      failures.length > 0
-        ? `${failures.length} test(s) failed: ${failures.map((f) => f.testName).join(', ')}`
-        : `All ${total} Java tests passed.`;
-    emit({ category: 'java', type: 'summary', payload: { text: deterministicText } });
-  }
+  const deterministicText =
+    failures.length > 0
+      ? `${failures.length} test(s) failed: ${failures.map((f) => f.testName).join(', ')}`
+      : `All ${total} Java tests passed.`;
+  emit({ category: 'java', type: 'summary', payload: { text: deterministicText } });
 }
 
 module.exports = { runJavaTests, __internal: { parseSurefireXml, findSurefireReportFiles } };

@@ -1,12 +1,10 @@
 # AI QA Tester — Cross-module contracts
 
 Hybrid architecture: **test execution is AI-free by default**, built on the real
-`@playwright/test` runner (standard, portable, no AI/API key required to run a suite). AI
-(the local `claude` CLI, already authenticated on this machine, no `ANTHROPIC_API_KEY`
-anywhere) is used only in three optional, non-execution places:
-1. **AI discovery** — crawl a site and propose candidate test cases (still uses
-   `mcp-configs/playwright.json` + Playwright MCP tool-calling).
-2. **AI Draft** — turn a plain-English description into a draft `.spec.js` body for a human
+`@playwright/test` runner (standard, portable, no AI/API key required to run a suite). An
+optional AI provider layer is used only in a few non-execution places:
+1. **AI discovery** — generate candidate test cases for a target URL using a provider-safe
+   fallback that does not depend on personal identity or a hidden account session.
    to review/save (one-shot text generation, no tools).
 3. **AI summary** — opt-in narrative summary in the report / Java-failure summary (off by
    default; `ai_summary` flag per run).

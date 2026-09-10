@@ -358,7 +358,7 @@ export default function TestCases() {
             </button>
           </div>
         </div>
-        {discovering && <p className="muted">Crawling target and asking Claude for candidate tests…</p>}
+        {discovering && <p className="muted">Crawling target and generating candidate tests…</p>}
         {candidates.length > 0 && (
           <div className="test-case-list">
             {candidates.map((tc) => (

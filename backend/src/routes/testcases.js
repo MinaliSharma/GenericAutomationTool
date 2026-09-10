@@ -4,8 +4,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const db = require('../db/db');
-const claudeRunner = require('../orchestrator/claudeRunner');
-const promptTemplates = require('../orchestrator/promptTemplates');
+const aiService = require('../orchestrator/aiService');
 const specFileSync = require('../specfiles/specFileSync');
 
 const router = express.Router();
@@ -34,9 +33,8 @@ function findPageObjectContext(targetUrl) {
   return null;
 }
 
-// Claude sometimes wraps "return raw code only" responses in a markdown fence anyway
-// (e.g. ```javascript\n...\n```). Strip that defensively so the result is always
-// directly-writable, valid spec file content.
+// Some AI providers wrap "return raw code only" responses in a markdown fence.
+// Strip that defensively so the result is always directly-writable, valid spec file content.
 function stripCodeFences(text) {
   if (typeof text !== 'string') return text;
   const trimmed = text.trim();
@@ -48,7 +46,9 @@ function validateSpecCode(specCode) {
   if (!specCode || !String(specCode).trim()) return null;
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiqa-spec-'));
-  const tempFile = path.join(tempDir, 'spec.js');
+  // .mjs forces Node to fully parse `import` syntax; a plain .js file is treated as
+  // ambiguous and silently skips real validation, letting broken specs through.
+  const tempFile = path.join(tempDir, 'spec.mjs');
   try {
     fs.writeFileSync(tempFile, String(specCode), 'utf8');
     const result = spawnSync(process.execPath, ['--check', tempFile], {
@@ -107,13 +107,7 @@ router.post('/projects/:id/scenario-test-cases', async (req, res) => {
   if (!scenario) return res.status(400).json({ error: 'scenario is required' });
 
   try {
-    const raw = await claudeRunner.runClaudePrompt({
-      prompt: promptTemplates.buildScenarioTestCasesPrompt(scenario)
-    });
-    const cases = extractJsonArray(stripCodeFences(raw));
-    if (!Array.isArray(cases)) {
-      return res.status(502).json({ error: 'scenario generation did not return a JSON array' });
-    }
+    const cases = aiService.generateScenarioCandidates({ scenario, limit: 5 });
 
     const created = cases
       .filter((item) => item && item.title && item.description)
@@ -227,21 +221,14 @@ router.post('/test-cases/:id/ai-draft', async (req, res) => {
   const project = db.getProject(testCase.project_id);
 
   try {
-    const prompt = promptTemplates.buildDraftSpecPrompt({
+    const specCode = aiService.generateDraftSpec({
       type: testCase.type,
       title: testCase.title,
       description: req.body && req.body.description ? req.body.description : testCase.description,
       targetUrl: project ? project.target_url : undefined,
-      apiBaseUrl: project ? project.api_base_url : undefined,
-      pageObjectContext: testCase.type === 'browser'
-        ? findPageObjectContext(project ? project.target_url : undefined)
-        : null
+      apiBaseUrl: project ? project.api_base_url : undefined
     });
 
-    const specCode = stripCodeFences(await claudeRunner.runClaudePrompt({ prompt }));
-    if (!specCode || !specCode.trim()) {
-      return res.status(502).json({ error: 'ai draft returned empty spec_code' });
-    }
     const specError = validateSpecCode(specCode);
     if (specError) return res.status(502).json({ error: specError });
 
@@ -263,30 +250,9 @@ router.post('/projects/:id/discover', async (req, res) => {
   }
 
   try {
-    const prompt = promptTemplates.buildDiscoverTestsPrompt(project.target_url);
-    // Discovery needs to actually browse the site, so it must run through the
-    // tool-enabled path (Playwright MCP), not the no-tools runClaudePrompt.
-    const { exitCode, fullText, stderr } = await claudeRunner.runClaudeTask({
-      prompt,
-      cwd: db.REPO_ROOT,
-      onEvent: () => {}
-    });
+    const candidates = aiService.generateCandidateTests({ targetUrl: project.target_url, limit: 5 });
 
-    if (exitCode !== 0) {
-      return res.status(502).json({
-        error: `AI discovery process failed with exit code ${exitCode}`,
-        stderr: stderr || '(empty)',
-        fullText: fullText || '(empty)',
-        detail: 'Check that: (1) claude CLI is installed and authenticated, (2) backend started in an environment where claude is on PATH, (3) mcp-configs/playwright.json exists and is valid, (4) target URL is reachable.'
-      });
-    }
-
-    const jsonArray = extractJsonArray(fullText);
-    if (!jsonArray) {
-      return res.status(502).json({ error: 'AI discovery did not return a parseable JSON array', raw: fullText });
-    }
-
-    const created = jsonArray
+    const created = candidates
       .filter((item) => item && item.title && item.description)
       .map((item) =>
         db.createTestCase({
@@ -305,7 +271,7 @@ router.post('/projects/:id/discover', async (req, res) => {
       return res.status(502).json({
         error: 'AI discovery returned no usable test cases',
         detail: 'Each discovered item must include a title and description.',
-        raw: jsonArray
+        raw: candidates
       });
     }
 
@@ -314,58 +280,5 @@ router.post('/projects/:id/discover', async (req, res) => {
     res.status(500).json({ error: `discovery failed: ${err.message}` });
   }
 });
-
-/**
- * Defensively extracts a JSON array from Claude's text output. `runClaudeTask`'s
- * fullText concatenates assistant text from every turn of a multi-step agentic task,
- * so the output often contains narration before/between/after the actual array, and
- * sometimes the array appears more than once (e.g. narrated, then restated as the
- * final answer). A naive first-'['-to-last-']' slice breaks in that case, since it
- * spans across both arrays plus the prose between them, yielding invalid JSON.
- *
- * Instead, scan for every '[' and, respecting quoted strings, walk forward tracking
- * bracket depth to find the syntactically-complete array starting there; return the
- * first one that parses as valid JSON (ignoring any later duplicate/garbage text).
- */
-function extractJsonArray(text) {
-  if (typeof text !== 'string') return null;
-  const cleaned = text.trim();
-
-  for (let i = 0; i < cleaned.length; i += 1) {
-    if (cleaned[i] !== '[') continue;
-    const candidate = extractBalancedBracket(cleaned, i);
-    if (!candidate) continue;
-    try {
-      const parsed = JSON.parse(candidate);
-      if (Array.isArray(parsed)) return parsed;
-    } catch (e) {
-      // not a valid JSON array starting at this '[' - keep scanning
-    }
-  }
-  return null;
-}
-
-/** Returns the substring from `startIdx` (a '[') to its matching ']', string-aware. */
-function extractBalancedBracket(str, startIdx) {
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  for (let i = startIdx; i < str.length; i += 1) {
-    const ch = str[i];
-    if (inString) {
-      if (escape) escape = false;
-      else if (ch === '\\') escape = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    else if (ch === '[') depth += 1;
-    else if (ch === ']') {
-      depth -= 1;
-      if (depth === 0) return str.slice(startIdx, i + 1);
-    }
-  }
-  return null;
-}
 
 module.exports = router;
