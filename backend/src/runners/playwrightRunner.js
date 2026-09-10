@@ -74,6 +74,8 @@ async function runPlaywrightTest({ testCase, project, runId, onEvent }) {
         ['playwright', 'test', cliSpecPath, '--reporter', REPORTER_PATH],
         {
           cwd: PLAYWRIGHT_DIR,
+          // Windows can't exec the npx.cmd shim directly without going through a shell.
+          shell: process.platform === 'win32',
           env: {
             ...process.env,
             PW_BASE_URL: project.target_url || '',
