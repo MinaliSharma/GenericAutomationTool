@@ -20,7 +20,6 @@ const fs = require('fs');
 const path = require('path');
 
 const db = require('../db/db');
-const claudeRunner = require('../orchestrator/claudeRunner');
 
 let buildRunSummaryPrompt;
 try {
@@ -312,34 +311,17 @@ async function buildReport({ runId }) {
   let summaryText = summaryEvent ? summaryEvent.payload.text : run.summary_text;
 
   if (!summaryText) {
-    if (run.ai_summary) {
-      const runData = {
-        projectName: project.name,
-        targetUrl: project.target_url,
-        includeJava,
-        testCases: testCaseStatuses.map(({ title, type, status }) => ({ title, type, status })),
-        javaResult: includeJava ? javaResult : null,
-        overallStatus
-      };
-      const prompt = buildRunSummaryPrompt ? buildRunSummaryPrompt(runData) : fallbackRunSummaryPrompt(runData);
-      try {
-        summaryText = await claudeRunner.runClaudePrompt({ prompt, cwd: REPO_ROOT });
-      } catch (e) {
-        summaryText = `(AI summary unavailable: ${e.message})`;
-      }
-    } else {
-      const passedCount = testCaseStatuses.filter((tc) => tc.status === 'passed').length;
-      const totalCount = testCaseStatuses.length;
-      let text = `${passedCount}/${totalCount} test cases passed.`;
-      if (includeJava && javaResult) {
-        text += ` Java: ${javaResult.passed}/${javaResult.total} passed.`;
-      }
-      const failedTitles = testCaseStatuses.filter((tc) => tc.status !== 'passed').map((tc) => tc.title);
-      if (failedTitles.length > 0) {
-        text += '\n\nFailed test cases:\n' + failedTitles.map((t) => `- ${t}`).join('\n');
-      }
-      summaryText = text;
+    const passedCount = testCaseStatuses.filter((tc) => tc.status === 'passed').length;
+    const totalCount = testCaseStatuses.length;
+    let text = `${passedCount}/${totalCount} test cases passed.`;
+    if (includeJava && javaResult) {
+      text += ` Java: ${javaResult.passed}/${javaResult.total} passed.`;
     }
+    const failedTitles = testCaseStatuses.filter((tc) => tc.status !== 'passed').map((tc) => tc.title);
+    if (failedTitles.length > 0) {
+      text += '\n\nFailed test cases:\n' + failedTitles.map((t) => `- ${t}`).join('\n');
+    }
+    summaryText = text;
   }
 
   // ---- duration / timestamps ----

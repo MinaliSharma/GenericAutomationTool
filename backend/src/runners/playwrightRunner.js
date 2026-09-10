@@ -42,6 +42,8 @@ async function runPlaywrightTest({ testCase, project, runId, onEvent }) {
   // relative spec path from PLAYWRIGHT_DIR, e.g. tests/browser/tc-42.spec.js
   const relSpecPath = path.join('tests', testCase.type, `tc-${testCase.id}.spec.js`);
   const absSpecPath = path.join(PLAYWRIGHT_DIR, relSpecPath);
+  // Playwright's CLI glob matcher expects forward slashes even on Windows.
+  const cliSpecPath = relSpecPath.split(path.sep).join('/');
 
   if (!fs.existsSync(absSpecPath)) {
     emit({
@@ -69,7 +71,7 @@ async function runPlaywrightTest({ testCase, project, runId, onEvent }) {
     try {
       child = spawn(
         'npx',
-        ['playwright', 'test', relSpecPath, '--reporter', REPORTER_PATH],
+        ['playwright', 'test', cliSpecPath, '--reporter', REPORTER_PATH],
         {
           cwd: PLAYWRIGHT_DIR,
           env: {
@@ -102,6 +104,7 @@ async function runPlaywrightTest({ testCase, project, runId, onEvent }) {
     }
 
     const rl = readline.createInterface({ input: child.stdout });
+    let nonJsonStdout = '';
 
     rl.on('line', (line) => {
       const trimmed = line.trim();
@@ -110,7 +113,9 @@ async function runPlaywrightTest({ testCase, project, runId, onEvent }) {
       try {
         obj = JSON.parse(trimmed);
       } catch (e) {
-        // malformed / non-JSON line - skip defensively
+        // Not a reporter event - could be a real Playwright CLI error (e.g. "No tests
+        // found" when the spec glob doesn't match). Keep it so failures aren't silent.
+        nonJsonStdout += line + '\n';
         return;
       }
       if (obj && obj.type === 'step_result') {
@@ -136,10 +141,11 @@ async function runPlaywrightTest({ testCase, project, runId, onEvent }) {
 
     child.on('close', (exitCode) => {
       if (exitCode !== 0 && !sawStepResult) {
+        const detail = stderrBuf.trim() || nonJsonStdout.trim();
         emit({
           category,
           type: 'error',
-          payload: { message: `playwright test exited with code ${exitCode}: ${truncate(stderrBuf, 800)}` },
+          payload: { message: `playwright test exited with code ${exitCode}: ${truncate(detail, 800)}` },
           testCaseId: testCase.id,
           createdAt: nowIso(),
         });
@@ -149,8 +155,8 @@ async function runPlaywrightTest({ testCase, project, runId, onEvent }) {
           payload: {
             testCaseId: testCase.id,
             status: 'failed',
-            message: stderrBuf.trim()
-              ? truncate(stderrBuf, 800)
+            message: detail
+              ? truncate(detail, 800)
               : `playwright test exited with code ${exitCode} and produced no result`,
           },
           testCaseId: testCase.id,

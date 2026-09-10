@@ -1,5 +1,5 @@
 /**
- * Prompt-building helpers for the claude CLI orchestrator.
+ * Prompt-building helpers for the optional AI provider layer.
  * Each function returns a plain prompt string (no side effects).
  */
 
