@@ -14,7 +14,8 @@ const app = express();
 
 app.use(
   cors({
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173']
+    // Vite picks the next free port (5173, 5174, 5175, ...) if the default is busy.
+    origin: /^http:\/\/(localhost|127\.0\.0\.1):51\d\d$/
   })
 );
 app.use(express.json());
