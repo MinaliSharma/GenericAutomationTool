@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { API_BASE, getRun, getRunEvents, rerunFailedTests } from '../lib/api';
+import { Link, useParams } from 'react-router-dom';
+import { API_BASE, getRun, getRunEvents } from '../lib/api';
 import { connectRunSocket } from '../lib/wsClient';
 import LiveLogPanel from '../components/LiveLogPanel';
 import ScreenshotPane from '../components/ScreenshotPane';
@@ -21,9 +21,7 @@ export default function LiveRun() {
   const [events, setEvents] = useState([]);
   const [run, setRun] = useState(null);
   const [wsStatus, setWsStatus] = useState('connecting');
-  const [rerunning, setRerunning] = useState(false);
   const seenKeys = useRef(new Set());
-  const navigate = useNavigate();
 
   function mergeEvents(newEvents) {
     if (!newEvents || newEvents.length === 0) return;
@@ -114,17 +112,6 @@ export default function LiveRun() {
 
   const isTerminal = run && TERMINAL_STATUSES.has(run.status);
 
-  async function handleRerun() {
-    setRerunning(true);
-    try {
-      const nextRun = await rerunFailedTests(runId);
-      navigate(`/runs/${nextRun.id}/live`);
-    } catch (err) {
-      console.error('Failed to rerun failed tests', err);
-      setRerunning(false);
-    }
-  }
-
   return (
     <div className="page">
       <div className="page-header">
@@ -141,11 +128,6 @@ export default function LiveRun() {
             <Link className="btn btn-primary" to={`/runs/${runId}/report`}>
               View Report
             </Link>
-          )}
-          {run && (run.status === 'failed' || run.status === 'error') && (
-            <button type="button" className="btn btn-secondary" onClick={handleRerun} disabled={rerunning}>
-              {rerunning ? 'Rerunning…' : 'Rerun failed tests'}
-            </button>
           )}
         </div>
       </div>

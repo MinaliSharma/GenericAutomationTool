@@ -6,6 +6,21 @@ const db = require('../db/db');
 const router = express.Router();
 const PLAYWRIGHT_DIR = path.join(db.REPO_ROOT, 'playwright');
 
+function validateHttpUrl(value, fieldName) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') return `${fieldName} must be a valid http(s) URL`;
+
+  try {
+    const parsed = new URL(value.trim());
+    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) {
+      return `${fieldName} must be a valid http(s) URL`;
+    }
+  } catch {
+    return `${fieldName} must be a valid http(s) URL`;
+  }
+  return null;
+}
+
 // Fire-and-forget: auto-generates a Page Object (locators + methods) for the
 // project's target_url, so the user never has to run the generator by hand.
 function autoGeneratePageObject(url) {
@@ -25,12 +40,24 @@ function autoGeneratePageObject(url) {
 // POST /api/projects
 router.post('/projects', (req, res) => {
   const { name, target_url, api_base_url, java_repo_path } = req.body || {};
-  if (!name || typeof name !== 'string') {
+  if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
-  const project = db.createProject({ name, target_url, api_base_url, java_repo_path });
+  const targetUrlError = validateHttpUrl(target_url, 'target_url');
+  if (targetUrlError) return res.status(400).json({ error: targetUrlError });
+  const apiBaseUrlError = validateHttpUrl(api_base_url, 'api_base_url');
+  if (apiBaseUrlError) return res.status(400).json({ error: apiBaseUrlError });
+
+  const normalizedTargetUrl = typeof target_url === 'string' ? target_url.trim() : target_url;
+  const normalizedApiBaseUrl = typeof api_base_url === 'string' ? api_base_url.trim() : api_base_url;
+  const project = db.createProject({
+    name: name.trim(),
+    target_url: normalizedTargetUrl,
+    api_base_url: normalizedApiBaseUrl,
+    java_repo_path
+  });
   res.status(201).json(project);
-  autoGeneratePageObject(target_url);
+  autoGeneratePageObject(normalizedTargetUrl);
 });
 
 // GET /api/projects
