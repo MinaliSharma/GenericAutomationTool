@@ -11,17 +11,25 @@ Target URL: ${targetUrl}
 Observed pages and controls (JSON):
 ${JSON.stringify(pages, null, 2)}
 
-Based only on this evidence, propose browser test cases for real pages and controls.
+Based only on this evidence, propose functional browser test cases for real pages and controls.
 Do not invent selectors, URLs, credentials, or behavior that is not supported by the evidence.
-Cover important navigation, forms, and user flows. Do not propose destructive actions.
+Cover every observed page and every distinct safe user flow. Include navigation, forms,
+search/filtering, selection, cart/checkout, authentication, validation, and confirmations
+when present. Include complete end-to-end flows that cross pages. Do not propose destructive actions.
+Observed pages are representative route templates. Do not create one test per product, brand,
+category value, repeated navigation link, or shared newsletter form. Test one representative
+item per repeated template and focus additional cases on distinct behavior and business flows.
 
 Output requirement (critical):
 Return ONLY a raw JSON array, with no prose, no explanation, and no markdown code
 fences, in exactly this shape:
-[{"type":"browser","title":"<short title>","description":"<plain English steps, one per line>"}]
+[{"type":"browser","title":"<short title>","description":"<plain English steps, one per line>","targetUrl":"<one observed page URL>"}]
 
-Every element must have type "browser". Return between 3 and 10 test cases. The
-response body must be valid JSON and nothing else.`;
+Every element must have type "browser". Return as many distinct test cases as required
+to cover all observed pages, controls, and end-to-end flows. There is no fixed test-count
+limit, but do not duplicate equivalent behavior. Every observed representative page URL must
+appear in at least one test case. The response body must
+be valid JSON and nothing else.`;
 }
 
 function buildScenarioTestCasesPrompt(scenario) {
@@ -45,7 +53,7 @@ type (always "browser"), title, description.
 The description must contain concrete steps and an observable expected result.`;
 }
 
-function buildDraftSpecPrompt({ type, title, description, targetUrl, apiBaseUrl, pageObjectContext }) {
+function buildDraftSpecPrompt({ type, title, description, targetUrl, apiBaseUrl, pageObjectContext, pageEvidence }) {
   const isApi = type === 'api';
 
   return `You are an automated QA engineer writing a Playwright Test spec file.
@@ -81,6 +89,11 @@ against the origin, discarding that path and landing on the wrong page. If the t
       ? 'No Page Object source was supplied. Do not invent selectors from visible text; prefer stable getByRole/getByLabel locators only when the description proves them.'
       : ''}
 
+  ${!isApi && pageEvidence
+    ? `Observed DOM evidence for this page (use these controls and labels to choose real locators):
+  ${JSON.stringify(pageEvidence, null, 2)}`
+    : ''}
+
 Instructions:
 1. Write a complete, valid Playwright Test spec file body: start with
   \`import { test, expect } from '@playwright/test';\` and, for browser tests,
@@ -88,10 +101,12 @@ Instructions:
    \`test('${title}', async ({ ${isApi ? 'request' : 'page'} }) => { ... });\` block that
    implements the description above using real Playwright/expect API calls.
 2. Use clear, meaningful assertions (\`expect(...)\`) that actually verify the described
-   behavior, not just that the page/request didn't crash.
+  behavior, not just that the page/request didn't crash. Every asynchronous Playwright
+  assertion must be awaited, for example \`await expect(locator).toBeVisible()\`.
 3. For browser tests, every locator used with an assertion or action must identify exactly one
   element. Prefer \`getByRole\`, \`getByLabel\`, \`getByTestId\`, or a unique \`#id\`.
   Never use comma-separated CSS fallback selectors such as \`page.locator('.primary, #fallback')\`;
+  never use \`page.locator('text=...')\`, which can match hidden or duplicate elements;
   inspect the target element and choose one stable locator instead. For native select elements,
   select by visible label using \`selectOption({ label: 'Visible option text' })\`; do not assume
   that the visible label equals the HTML option value. Assert the actual value only when it is
