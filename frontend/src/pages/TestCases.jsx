@@ -45,6 +45,7 @@ export default function TestCases() {
   const [discovering, setDiscovering] = useState(false);
   const [scenario, setScenario] = useState('');
   const [generatingScenario, setGeneratingScenario] = useState(false);
+  const [approvalProgress, setApprovalProgress] = useState(null);
 
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [candidateSelectedIds, setCandidateSelectedIds] = useState(new Set());
@@ -188,19 +189,27 @@ export default function TestCases() {
 
   async function handleApproveSelected() {
     const selectedCandidates = candidates.filter((testCase) => candidateSelectedIds.has(testCase.id));
-    if (selectedCandidates.length === 0) return;
-    const unauthored = selectedCandidates.filter((testCase) => !testCase.spec_code?.trim());
-    if (unauthored.length > 0) {
-      setError('Generate and save a spec for every selected test case before approving.');
-      return;
+    if (selectedCandidates.length === 0 || approvalProgress) return;
+
+    setError(null);
+    const failedIds = new Set();
+    const failures = [];
+    for (let index = 0; index < selectedCandidates.length; index += 1) {
+      const testCase = selectedCandidates[index];
+      setApprovalProgress({ current: index + 1, total: selectedCandidates.length });
+      try {
+        await approveTestCase(testCase.id);
+      } catch (err) {
+        failedIds.add(testCase.id);
+        failures.push(`${testCase.title}: ${err.message}`);
+      }
     }
 
-    try {
-      await Promise.all(selectedCandidates.map((testCase) => approveTestCase(testCase.id)));
-      setCandidateSelectedIds(new Set());
-      await refresh();
-    } catch (err) {
-      setError(err.message);
+    setCandidateSelectedIds(failedIds);
+    setApprovalProgress(null);
+    await refresh();
+    if (failures.length > 0) {
+      setError(`${failures.length} approval(s) failed and remain selected. ${failures.join(' | ')}`);
     }
   }
 
@@ -383,9 +392,11 @@ export default function TestCases() {
                 type="button"
                 className="btn btn-approve"
                 onClick={handleApproveSelected}
-                disabled={candidateSelectedIds.size === 0}
+                disabled={candidateSelectedIds.size === 0 || !!approvalProgress}
               >
-                Approve selected ({candidateSelectedIds.size})
+                {approvalProgress
+                  ? `Approving ${approvalProgress.current} of ${approvalProgress.total}…`
+                  : `Approve selected (${candidateSelectedIds.size})`}
               </button>
             </div>
           <div className="test-case-list">

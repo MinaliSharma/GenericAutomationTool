@@ -1,10 +1,7 @@
 const express = require('express');
-const path = require('path');
-const { spawn } = require('child_process');
 const db = require('../db/db');
 
 const router = express.Router();
-const PLAYWRIGHT_DIR = path.join(db.REPO_ROOT, 'playwright');
 
 function validateHttpUrl(value, fieldName) {
   if (value === undefined || value === null || value === '') return null;
@@ -19,22 +16,6 @@ function validateHttpUrl(value, fieldName) {
     return `${fieldName} must be a valid http(s) URL`;
   }
   return null;
-}
-
-// Fire-and-forget: auto-generates a Page Object (locators + methods) for the
-// project's target_url, so the user never has to run the generator by hand.
-function autoGeneratePageObject(url) {
-  if (!url) return;
-  const child = spawn('node', ['scripts/generatePageObject.js', url], {
-    cwd: PLAYWRIGHT_DIR,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let output = '';
-  child.stdout.on('data', (d) => (output += d.toString()));
-  child.stderr.on('data', (d) => (output += d.toString()));
-  child.on('close', (code) => {
-    console.log(`[auto page-object generation] exit ${code}: ${output.trim()}`);
-  });
 }
 
 // POST /api/projects
@@ -57,7 +38,6 @@ router.post('/projects', (req, res) => {
     java_repo_path
   });
   res.status(201).json(project);
-  autoGeneratePageObject(normalizedTargetUrl);
 });
 
 // GET /api/projects

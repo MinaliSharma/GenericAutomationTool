@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS test_cases (
   type TEXT NOT NULL CHECK(type IN ('browser','api')),
   title TEXT NOT NULL,
   description TEXT,
+  target_url TEXT,
   spec_code TEXT,
   source TEXT NOT NULL CHECK(source IN ('manual','ai_discovered')),
   origin TEXT NOT NULL DEFAULT 'manual',
@@ -71,6 +72,9 @@ if (!testCaseColumns.includes('origin')) {
   db.exec(`ALTER TABLE test_cases ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'`);
   db.exec(`UPDATE test_cases SET origin = CASE WHEN source = 'ai_discovered' THEN 'ai_discovered' ELSE 'manual' END`);
 }
+if (!testCaseColumns.includes('target_url')) {
+  db.exec(`ALTER TABLE test_cases ADD COLUMN target_url TEXT`);
+}
 
 // ---------- Helpers ----------
 
@@ -97,16 +101,17 @@ function listProjects() {
 }
 
 // --- test_cases ---
-function createTestCase({ project_id, type, title, description, spec_code, source, origin, approved }) {
+function createTestCase({ project_id, type, title, description, target_url, spec_code, source, origin, approved }) {
   const stmt = db.prepare(
-    `INSERT INTO test_cases (project_id, type, title, description, spec_code, source, origin, approved, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO test_cases (project_id, type, title, description, target_url, spec_code, source, origin, approved, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const info = stmt.run(
     project_id,
     type,
     title,
     description === undefined ? null : description,
+    target_url || null,
     spec_code === undefined ? null : spec_code,
     source,
     origin || source,
@@ -160,7 +165,7 @@ function deleteAllTestCasesByProject(projectId) {
   return transaction();
 }
 
-const TEST_CASE_PATCH_FIELDS = ['title', 'description', 'spec_code', 'approved'];
+const TEST_CASE_PATCH_FIELDS = ['title', 'description', 'target_url', 'spec_code', 'approved'];
 
 function updateTestCase(id, patch) {
   const fields = Object.keys(patch || {}).filter((key) => TEST_CASE_PATCH_FIELDS.includes(key));
