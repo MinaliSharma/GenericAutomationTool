@@ -3,7 +3,6 @@ import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
   approveTestCase,
   clearAllTestCases,
-  clearGeneratedTestCases,
   createRun,
   createTestCase,
   deleteTestCase,
@@ -48,6 +47,7 @@ export default function TestCases() {
   const [generatingScenario, setGeneratingScenario] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [candidateSelectedIds, setCandidateSelectedIds] = useState(new Set());
   const [includeJava, setIncludeJava] = useState(false);
   const [aiSummary, setAiSummary] = useState(false);
   const [runSubmitting, setRunSubmitting] = useState(false);
@@ -158,22 +158,12 @@ export default function TestCases() {
     }
   }
 
-  async function handleClearGenerated() {
-    if (!window.confirm('Clear all unapproved generated test cases for this project?')) return;
-    try {
-      await clearGeneratedTestCases(projectId);
-      setSelectedIds(new Set());
-      await refresh();
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
   async function handleClearAll() {
     if (!window.confirm('Delete ALL test cases in this project? This cannot be undone.')) return;
     try {
       await clearAllTestCases(projectId);
       setSelectedIds(new Set());
+      setCandidateSelectedIds(new Set());
       await refresh();
     } catch (err) {
       setError(err.message);
@@ -196,10 +186,19 @@ export default function TestCases() {
     }
   }
 
-  async function handleApprove(id) {
+  async function handleApproveSelected() {
+    const selectedCandidates = candidates.filter((testCase) => candidateSelectedIds.has(testCase.id));
+    if (selectedCandidates.length === 0) return;
+    const unauthored = selectedCandidates.filter((testCase) => !testCase.spec_code?.trim());
+    if (unauthored.length > 0) {
+      setError('Generate and save a spec for every selected test case before approving.');
+      return;
+    }
+
     try {
-      await approveTestCase(id);
-      refresh();
+      await Promise.all(selectedCandidates.map((testCase) => approveTestCase(testCase.id)));
+      setCandidateSelectedIds(new Set());
+      await refresh();
     } catch (err) {
       setError(err.message);
     }
@@ -208,6 +207,11 @@ export default function TestCases() {
   async function handleDiscard(id) {
     try {
       await deleteTestCase(id);
+      setCandidateSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       refresh();
     } catch (err) {
       setError(err.message);
@@ -220,6 +224,22 @@ export default function TestCases() {
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
+    });
+  }
+
+  function toggleCandidateSelect(id) {
+    setCandidateSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllCandidates() {
+    setCandidateSelectedIds((prev) => {
+      if (prev.size === candidates.length) return new Set();
+      return new Set(candidates.map((testCase) => testCase.id));
     });
   }
 
@@ -328,10 +348,7 @@ export default function TestCases() {
               onChange={(e) => handleSpecChange(e.target.value)}
             />
           </label>
-          <p className="muted">
-            Note: "AI Draft" (auto-generating this spec from the description) is available after saving —
-            open the test case below and click "Author spec".
-          </p>
+          <p className="muted">Generated cases can use Generate spec below; you can review the code before approval.</p>
           <button type="submit" className="btn btn-primary" disabled={creating}>
             {creating ? 'Adding…' : 'Add Test Case'}
           </button>
@@ -345,14 +362,6 @@ export default function TestCases() {
             <button type="button" className="btn btn-secondary" onClick={handleDiscover} disabled={discovering}>
               {discovering ? 'Discovering…' : 'Discover tests'}
             </button>
-            <button
-              type="button"
-              className="btn btn-discard"
-              onClick={handleClearGenerated}
-              disabled={candidates.length === 0}
-            >
-              Clear generated tests
-            </button>
             <button type="button" className="btn btn-danger" onClick={handleClearAll} disabled={testCases.length === 0}>
               Clear all test cases
             </button>
@@ -360,19 +369,40 @@ export default function TestCases() {
         </div>
         {discovering && <p className="muted">Crawling target and generating candidate tests…</p>}
         {candidates.length > 0 && (
+          <>
+            <div className="selection-toolbar">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={candidateSelectedIds.size === candidates.length}
+                  onChange={toggleAllCandidates}
+                />
+                Select all ({candidates.length})
+              </label>
+              <button
+                type="button"
+                className="btn btn-approve"
+                onClick={handleApproveSelected}
+                disabled={candidateSelectedIds.size === 0}
+              >
+                Approve selected ({candidateSelectedIds.size})
+              </button>
+            </div>
           <div className="test-case-list">
             {candidates.map((tc) => (
               <TestCaseCard
                 key={tc.id}
                 testCase={tc}
                 serialNumber={testCases.findIndex((item) => item.id === tc.id) + 1}
-                onApprove={handleApprove}
+                selected={candidateSelectedIds.has(tc.id)}
+                onToggleSelect={toggleCandidateSelect}
                 onDiscard={handleDiscard}
                 onDraftSpec={handleDraftSpec}
                 onSaveSpec={handleSaveSpec}
               />
             ))}
           </div>
+          </>
         )}
       </section>
 

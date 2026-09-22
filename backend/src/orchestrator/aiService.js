@@ -1,5 +1,153 @@
 'use strict';
 
+const path = require('path');
+const { buildScenarioTestCasesPrompt } = require('./promptTemplates');
+const { buildDiscoverTestsPrompt } = require('./promptTemplates');
+
+const PLAYWRIGHT_ROOT = path.join(__dirname, '../../../playwright');
+const TEST_CASE_RESPONSE_SCHEMA = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      type: { type: 'string', enum: ['browser', 'api'] },
+      title: { type: 'string' },
+      description: { type: 'string' }
+    },
+    required: ['type', 'title', 'description']
+  }
+};
+
+function localModelEnabled() {
+  return String(process.env.LOCAL_AI_ENABLED || '').toLowerCase() === 'true';
+}
+
+function localModelConfig() {
+  return {
+    baseUrl: String(process.env.LOCAL_AI_BASE_URL || 'http://localhost:11434/v1').replace(/\/$/, ''),
+    model: process.env.LOCAL_AI_MODEL || 'llama3.2',
+    timeoutMs: Number(process.env.LOCAL_AI_TIMEOUT_MS || 120000)
+  };
+}
+
+function parseJsonArray(content) {
+  const text = String(content || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  const arrayStart = text.indexOf('[');
+  const arrayEnd = text.lastIndexOf(']');
+  if (arrayStart < 0 || arrayEnd < arrayStart) throw new Error('local model did not return a JSON array');
+  const jsonText = text.slice(arrayStart, arrayEnd + 1).replace(/[\u0000-\u001f\u007f]/g, ' ');
+  const parsed = JSON.parse(jsonText);
+  if (!Array.isArray(parsed)) throw new Error('local model did not return a JSON array');
+  return parsed
+    .filter((item) => item && item.title && item.description)
+    .map((item) => ({
+      type: item.type === 'api' ? 'api' : 'browser',
+      title: String(item.title).trim(),
+      description: String(item.description).trim()
+    }));
+}
+
+async function generateScenarioCandidatesWithLocalModel({ scenario, limit = 5 }) {
+  const config = localModelConfig();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+
+  try {
+    const response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0.2,
+        format: TEST_CASE_RESPONSE_SCHEMA,
+        messages: [{ role: 'user', content: buildScenarioTestCasesPrompt(scenario) }]
+      }),
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`local model returned HTTP ${response.status}`);
+    const payload = await response.json();
+    const content = payload.choices?.[0]?.message?.content;
+    return parseJsonArray(content).slice(0, Math.max(1, Number(limit) || 5));
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function inspectTargetSite(targetUrl) {
+  const { chromium } = require(path.join(PLAYWRIGHT_ROOT, 'node_modules/@playwright/test'));
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  const pages = [];
+  const visited = new Set();
+  const origin = new URL(targetUrl).origin;
+  const urls = [targetUrl];
+
+  try {
+    while (urls.length > 0 && pages.length < 5) {
+      const url = urls.shift();
+      if (visited.has(url)) continue;
+      visited.add(url);
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+
+      const snapshot = await page.evaluate(() => ({
+        title: document.title,
+        text: document.body?.innerText?.slice(0, 5000) || '',
+        links: Array.from(document.querySelectorAll('a[href]')).slice(0, 30).map((link) => ({
+          text: (link.innerText || link.getAttribute('aria-label') || '').trim().slice(0, 120),
+          href: link.href
+        })),
+        controls: Array.from(document.querySelectorAll('button, input, select, textarea, [role="button"]'))
+          .slice(0, 40)
+          .map((element) => ({
+            tag: element.tagName.toLowerCase(),
+            type: element.getAttribute('type') || '',
+            label: (element.innerText || element.getAttribute('aria-label') || element.getAttribute('placeholder') || '').trim().slice(0, 120)
+          }))
+      }));
+
+      pages.push({ url, ...snapshot });
+      for (const link of snapshot.links) {
+        if (link.href.startsWith(origin) && !visited.has(link.href)) urls.push(link.href);
+      }
+    }
+    return pages;
+  } finally {
+    await browser.close();
+  }
+}
+
+async function discoverTestsWithLocalModel({ targetUrl, limit = 5 }) {
+  const pages = await inspectTargetSite(targetUrl);
+  const prompt = buildDiscoverTestsPrompt(targetUrl, pages);
+  const content = await requestLocalModel(prompt);
+  return parseJsonArray(content).slice(0, Math.max(1, Number(limit) || 5));
+}
+
+async function requestLocalModel(prompt) {
+  const config = localModelConfig();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+
+  try {
+    const response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0.2,
+        format: TEST_CASE_RESPONSE_SCHEMA,
+        messages: [{ role: 'user', content: prompt }]
+      }),
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`local model returned HTTP ${response.status}`);
+    const payload = await response.json();
+    return payload.choices?.[0]?.message?.content;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function normalizeUrl(url) {
   if (!url) return '';
   try {
@@ -84,6 +232,18 @@ function generateScenarioCandidates({ scenario, limit = 5 }) {
   return candidates.slice(0, Math.max(1, Number(limit) || 5));
 }
 
+async function generateScenarioCandidatesFromScenario({ scenario, limit = 5 }) {
+  if (!localModelEnabled()) return generateScenarioCandidates({ scenario, limit });
+
+  try {
+    const generated = await generateScenarioCandidatesWithLocalModel({ scenario, limit });
+    return generated.length > 0 ? generated : generateScenarioCandidates({ scenario, limit });
+  } catch (error) {
+    console.warn(`[local AI scenario generation] ${error.message}; using fallback templates`);
+    return generateScenarioCandidates({ scenario, limit });
+  }
+}
+
 function generateDraftSpec({ type, title, description, targetUrl, apiBaseUrl }) {
   const isApi = type === 'api';
   const safeTitle = String(title || 'Generated test').replace(/['"\\]/g, '');
@@ -105,12 +265,21 @@ function generateCandidateTests({ targetUrl, limit = 5 }) {
 }
 
 async function discoverTests({ targetUrl, limit = 5 }) {
-  return generateCandidateTests({ targetUrl, limit });
+  if (!localModelEnabled()) return generateCandidateTests({ targetUrl, limit });
+
+  try {
+    const generated = await discoverTestsWithLocalModel({ targetUrl, limit });
+    return generated.length > 0 ? generated : generateCandidateTests({ targetUrl, limit });
+  } catch (error) {
+    console.warn(`[local AI discovery] ${error.message}; using fallback templates`);
+    return generateCandidateTests({ targetUrl, limit });
+  }
 }
 
 module.exports = {
   generateCandidateTests,
   generateScenarioCandidates,
+  generateScenarioCandidatesFromScenario,
   generateDraftSpec,
   discoverTests
 };

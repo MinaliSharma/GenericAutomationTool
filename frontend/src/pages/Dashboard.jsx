@@ -75,17 +75,21 @@ export default function Dashboard() {
           <label>
             Target URL
             <input
+              type="url"
               value={form.target_url}
               onChange={(e) => setForm({ ...form, target_url: e.target.value })}
               placeholder="https://example.com"
+              pattern="https?://.+"
             />
           </label>
           <label>
             API Base URL (optional)
             <input
+              type="url"
               value={form.api_base_url}
               onChange={(e) => setForm({ ...form, api_base_url: e.target.value })}
               placeholder="https://api.example.com"
+              pattern="https?://.+"
             />
           </label>
           <label>

@@ -3,15 +3,14 @@ import { useState } from 'react';
 // A single test case: title, type badge, description/spec preview, and optional actions.
 // Props:
 //   testCase: { id, type, title, description, spec_code, source, approved }
-//   selected, onToggleSelect: for the approved-list checkbox flow
-//   onApprove, onDiscard: for the discovered-candidates flow (either may be omitted)
-//   onDraftSpec(id): calls the AI-draft endpoint, resolves to a spec_code string (or null on failure)
+//   selected, onToggleSelect: checkbox selection flow
+//   onDiscard: delete action (optional)
+//   onDraftSpec(id): generates a spec_code string (or null on failure)
 //   onSaveSpec(id, patch): persists a spec_code edit via PATCH, resolves to true/false
 export default function TestCaseCard({
   testCase,
   selected,
   onToggleSelect,
-  onApprove,
   onDiscard,
   onDraftSpec,
   onSaveSpec,
@@ -43,12 +42,15 @@ export default function TestCaseCard({
     setDraftCode(testCase.spec_code || '');
   }
 
-  async function handleAiDraft() {
+  async function handleGenerateSpec() {
     if (!onDraftSpec) return;
     setDrafting(true);
     try {
       const spec = await onDraftSpec(testCase.id);
-      if (spec) setDraftCode(spec);
+      if (spec) {
+        setDraftCode(spec);
+        setAuthoring(true);
+      }
     } finally {
       setDrafting(false);
     }
@@ -104,11 +106,6 @@ export default function TestCaseCard({
             onChange={(e) => setDraftCode(e.target.value)}
           />
           <div className="test-case-card-actions">
-            {onDraftSpec && (
-              <button type="button" className="btn btn-secondary" onClick={handleAiDraft} disabled={drafting}>
-                {drafting ? 'Drafting…' : 'AI Draft'}
-              </button>
-            )}
             {onSaveSpec && (
               <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
                 {saving ? 'Saving…' : 'Save'}
@@ -122,26 +119,19 @@ export default function TestCaseCard({
       )}
 
       <div className="test-case-card-actions">
-        {!authoring && (onDraftSpec || onSaveSpec) && (
+        {!authoring && isUnauthored && onDraftSpec && (
+          <button type="button" className="btn btn-primary" onClick={handleGenerateSpec} disabled={drafting}>
+            {drafting ? 'Generating spec…' : 'Generate spec'}
+          </button>
+        )}
+        {!authoring && !isUnauthored && onSaveSpec && (
           <button type="button" className="btn btn-secondary" onClick={openAuthoring}>
-            {isUnauthored ? 'Author spec' : 'Edit spec'}
+            Edit spec
           </button>
         )}
-        {onApprove && (
-          <button
-            type="button"
-            className="btn btn-approve"
-            onClick={() => onApprove(testCase.id)}
-            disabled={isUnauthored}
-            title={isUnauthored ? 'Author a spec before approving' : undefined}
-          >
-            Approve
-          </button>
-        )}
-        {isUnauthored && onApprove && <span className="muted">Author a spec first</span>}
         {onDiscard && (
           <button type="button" className="btn btn-discard" onClick={() => onDiscard(testCase.id)}>
-            {onApprove ? 'Discard' : 'Delete'}
+            Delete
           </button>
         )}
       </div>

@@ -8,6 +8,7 @@ export default function ReportView() {
   const [run, setRun] = useState(null);
   const [error, setError] = useState(null);
   const [rerunning, setRerunning] = useState(false);
+  const [rerunRunId, setRerunRunId] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -16,15 +17,44 @@ export default function ReportView() {
       .catch((err) => setError(err.message));
   }, [runId]);
 
+  useEffect(() => {
+    if (!rerunRunId) return undefined;
+    let cancelled = false;
+    let timer = null;
+
+    async function pollRerun() {
+      try {
+        const nextRun = await getRun(rerunRunId);
+        if (cancelled) return;
+        if (['passed', 'failed', 'error'].includes(nextRun.status)) {
+          navigate(`/runs/${rerunRunId}/report`);
+          return;
+        }
+        timer = setTimeout(pollRerun, 2000);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message);
+          setRerunning(false);
+          setRerunRunId(null);
+        }
+      }
+    }
+
+    pollRerun();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [rerunRunId, navigate]);
+
   async function handleRerun() {
     setRerunning(true);
     setError(null);
     try {
       const nextRun = await rerunFailedTests(runId);
-      navigate(`/runs/${nextRun.id}/live`);
+      setRerunRunId(nextRun.id);
     } catch (err) {
       setError(err.message);
-    } finally {
       setRerunning(false);
     }
   }

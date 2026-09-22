@@ -107,7 +107,7 @@ router.post('/projects/:id/scenario-test-cases', async (req, res) => {
   if (!scenario) return res.status(400).json({ error: 'scenario is required' });
 
   try {
-    const cases = aiService.generateScenarioCandidates({ scenario, limit: 5 });
+    const cases = await aiService.generateScenarioCandidatesFromScenario({ scenario, limit: 5 });
 
     const created = cases
       .filter((item) => item && item.title && item.description)
@@ -250,7 +250,7 @@ router.post('/projects/:id/discover', async (req, res) => {
   }
 
   try {
-    const candidates = aiService.generateCandidateTests({ targetUrl: project.target_url, limit: 5 });
+    const candidates = await aiService.discoverTests({ targetUrl: project.target_url, limit: 5 });
 
     const created = candidates
       .filter((item) => item && item.title && item.description)
